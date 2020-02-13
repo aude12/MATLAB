@@ -1,0 +1,381 @@
+% This code at the moment initiates a matrix with 6 dimensions to store 
+% pre/post data gains/loss data, then pptnum data followed by channel, 
+% frequency and timepoint/power info
+
+%% setting up lists for data and standard parameters to conduct time frequency
+pptlistLoss = dir('*Loss.set');
+pptlistLoss = {pptlistLoss.name};
+
+
+pptlistGains = dir('*Gains.set');
+pptlistGains = {pptlistGains.name};
+
+%pptlistRewP = dir('*RewP.set');
+%pptlistRewP = {pptlistRewP.name};
+
+
+%baseline time points for TF noramlization
+baseline_windows = [-500 -200];
+
+ 
+    % frequency parameters
+    min_freq = 0;
+    max_freq = 10;
+    num_frex = 50;
+    frex = linspace(min_freq,max_freq, num_frex);
+    
+    %which channel to plot
+    channel2use = ["Fz", "Fc1", "Fc2", "Cz", "Fccz"];
+ 
+    
+    %initialize output time-frequency data
+    %set up as 
+    %1. Pre/Post
+    %2. gains/loss/RewP/FN
+    %3. pptnum
+    %4. channel
+    %5. frequency
+    %6. power
+    
+tf_all = zeros(2,4,length(pptlistGains), length(channel2use), length(frex),1250);
+tf_all_norm = tf_all;
+
+time = [1 2];
+%% cycle through first list of "gains" to create gains data
+
+for pptnum = 1:length(pptlistGains);
+
+   %load ppt number file  
+    eegGains(pptnum) = pop_loadset(pptlistGains{pptnum});
+    
+    for chani = 1:length(channel2use)
+   
+
+    % convert baseline time into indices
+    baseidx = reshape( dsearchn(eegGains(pptnum).times,baseline_windows'), [],2);
+    
+     %other wavelet parameters
+    range_cycles = [ 3  7];
+
+    s = logspace(log10(range_cycles(1)), log10(range_cycles(end)),num_frex) ./ (2*pi*frex);
+    wavetime = -2:1/eegGains(pptnum).srate:2;
+    half_wave = (length(wavetime)-1)/2;
+
+    %FFT parameters
+    nWave = length(wavetime);
+    nData = eegGains(pptnum).pnts * eegGains(pptnum).trials; 
+    nConv = nWave + nData -1;
+    
+    
+    %now compute the FFT of all trials concatenated
+    alldata = reshape( eegGains(pptnum).data(strcmpi(channel2use(chani),{eegGains(pptnum).chanlocs.labels}),:,:), 1,[]);
+    dataX = fft(alldata, nConv);
+
+        %loop over frequencies and convolution with each
+        for fi=1:length(frex)
+    
+            % create wavelet and get its FFT
+            % the wavelet doesnt change on each trial
+            wavelet = exp(2*1i*pi*frex(fi) .* wavetime) .* exp(-wavetime.^2./(2*s(fi)^2));
+            waveletX = fft(wavelet,nConv);
+            waveletX = waveletX ./ max(waveletX);
+    
+            %now run convolution in on step
+            as = ifft(waveletX .* dataX);
+            as = as(half_wave+1:end-half_wave);
+    
+            % and reshape back to time x trials  
+            as = reshape(as,eegGains(pptnum).pnts,eegGains(pptnum).trials);
+    
+            %compute power and average over trials
+            tf_all(time(1),1,pptnum, chani,fi,:) = mean( abs(as).^2,2);
+           
+      
+        end
+
+    %Normalize data by converting to dB
+    activity = tf_all(time(1),1,pptnum,chani,:,:);
+    baseline = mean(tf_all(time(1),1,pptnum,chani,:,baseidx(1,1):baseidx(1,2)),6);
+    tf_all_norm(time(1),1,pptnum,chani,:,:) = bsxfun(@minus, activity, baseline) ;
+
+    end
+    
+    %store current normalized ppt data
+    %tfdataNormGains{pptnum} = tfnorm;
+end
+%% Plot da data for each channel for Gains
+
+figure(1), clf
+hold on
+for chanloci = 1:length(channel2use)
+
+
+subplot(2,3,chanloci)
+contourf(eegGains(pptnum).times, frex, squeeze(mean(tf_all_norm(time(1),1,:,chanloci,:,:),3)),40, 'linecolor', 'none')
+%set(gca,'clim', [-10  10], 'ydir', 'normal', 'xlim', [-200 800])
+colorbar
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['Gains - Exercise- ', channel2use(chanloci)]);
+set(get(colorbar,'title'),'string','dB');
+colormap(jet(256))
+
+end
+%% plot the average of all channels for Gains
+all_chan = zeros(length(frex),length(eegGains(pptnum).pnts));
+
+for chani = 1:length(channel2use)
+    all_chan = (all_chan + squeeze(mean(tf_all_norm(time(1),1,:,chani,:,:),3)));
+    all_chan = all_chan / 5;
+end
+
+subplot(2,3,6)
+contourf(eegGains(pptnum).times, frex, all_chan,40, 'linecolor', 'none')
+set(gca,'clim', [-10 10], 'ydir', 'normal', 'xlim', [-200 800])
+colorbar
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['Gains - Exercise - Average']);
+set(get(colorbar,'title'),'string','dB')
+%% now go through the Loss
+
+for pptnum = 1:length(pptlistLoss);
+   
+    eegLoss(pptnum) = pop_loadset(pptlistLoss{pptnum});
+    
+    
+    %cycle channels and store in 4th element
+    for chani = 1:length(channel2use)
+    
+  
+ 
+    
+    % convert baseline time into indices
+    baseidx = reshape( dsearchn(eegLoss(pptnum).times,baseline_windows'), [],2);
+    
+    %other wavelet parameters
+    range_cycles = [ 3 8 ];
+
+    s = logspace(log10(range_cycles(1)), log10(range_cycles(end)),num_frex) ./ (2*pi*frex);
+    wavetime = -2:1/eegLoss(pptnum).srate:2;
+    half_wave = (length(wavetime)-1)/2;
+
+    %FFT parameters
+    nWave = length(wavetime);
+    nData = eegLoss(pptnum).pnts * eegLoss(pptnum).trials;
+    nConv = nWave + nData -1;
+        
+    %now compute the FFT of all trials concatenated
+    alldata = reshape( eegLoss(pptnum).data(strcmpi(channel2use(chani),{eegLoss(pptnum).chanlocs.labels}),:,:), 1,[]);
+    dataX = fft(alldata, nConv);
+
+        %loop over frequencies and convolution with each
+        for fi=1:length(frex)
+    
+            % create wavelet and get its FFT
+            % the wavelet doesnt change on each trial
+            wavelet = exp(2*1i*pi*frex(fi) .* wavetime) .* exp(-wavetime.^2./(2*s(fi)^2));
+            waveletX = fft(wavelet,nConv);
+            waveletX = waveletX ./ max(waveletX);
+    
+            %now run convolution in on step
+            as = ifft(waveletX .* dataX);
+            as = as(half_wave+1:end-half_wave);
+    
+            % and reshape back to time x trials  
+            as = reshape(as, eegLoss(pptnum).pnts, eegLoss(pptnum).trials);
+    
+            %compute power and average over trials
+            tf_all(time(1),2,pptnum, chani,fi,:) = mean( abs(as).^2,2);
+           
+      
+        end
+
+    %Normalize data by converting to dB
+    activity = tf_all(time(1),2,pptnum, chani,:,:);
+    baseline = mean(tf_all(time(1),2,pptnum,chani,:,baseidx(1,1):baseidx(1,2)),6);
+    tf_all_norm(time(1),2,pptnum,chani,:,:) = bsxfun(@minus, activity, baseline) ;
+
+    end
+    
+end
+
+%% now plot this data for each channel for Loss
+
+
+figure(2), clf
+hold on
+for chanloci = 1:length(channel2use)
+
+subplot(2,3,chanloci)
+contourf(eegLoss(pptnum).times,frex,squeeze(mean(tf_all_norm(time(1),2,pptnum,chanloci,:,:),3)),40, 'linecolor', 'none')
+set(gca,'clim', [-3 3],'ydir', 'normal', 'xlim', [-200 800])
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['Loss - Exercise - ', channel2use(chanloci)]);
+colorbar
+%set(get(colorbar,'title'),'string','dB');
+colormap(jet(256))
+
+end
+%% plot the average of all channels for Loss
+all_chan = zeros(length(frex),length(eegGains(pptnum).pnts));
+
+for chani = 1:length(channel2use)
+    all_chan = (all_chan + squeeze(mean(tf_all_norm(time(1),2,:,chani,:,:),3)));
+    all_chan = all_chan / length(channel2use);
+end
+
+subplot(2,3,6)
+contourf(eegGains(pptnum).times, frex, all_chan,40, 'linecolor', 'none')
+set(gca,'clim', [-1 1], 'ydir', 'normal', 'xlim', [-200 800])
+colorbar
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['Loss - Exercise - Average']);
+set(get(colorbar,'title'),'string','dB')
+
+%%
+%%Now cycle through RewP
+
+for pptnum = 1:length(pptlistRewP);
+   
+    eegRewP(pptnum) = pop_loadset(pptlistRewP{pptnum});
+    
+    
+    %cycle channels and store in 4th element
+    for chani = 1:length(channel2use)
+    
+  
+    % convert baseline time into indices
+    baseidx = reshape( dsearchn(eegRewP(pptnum).times,baseline_windows'), [],2);
+    
+    %other wavelet parameters
+    range_cycles = [ 2 7 ];
+
+    s = logspace(log10(range_cycles(1)), log10(range_cycles(end)),num_frex) ./ (2*pi*frex);
+    wavetime = -2:1/eegRewP(pptnum).srate:2;
+    half_wave = (length(wavetime)-1)/2;
+
+    %FFT parameters
+    nWave = length(wavetime);
+    nData = eegRewP(pptnum).pnts * eegRewP(pptnum).trials;
+    nConv = nWave + nData -1;
+        
+    %now compute the FFT of all trials concatenated
+    alldata = reshape( eegRewP(pptnum).data(strcmpi(channel2use(chani),{eegRewP(pptnum).chanlocs.labels}),:,:), 1,[]);
+    dataX = fft(alldata, nConv);
+
+        %loop over frequencies and convolution with each
+        for fi=1:length(frex)
+    
+            % create wavelet and get its FFT
+            % the wavelet doesnt change on each trial
+            wavelet = exp(2*1i*pi*frex(fi) .* wavetime) .* exp(-wavetime.^2./(2*s(fi)^2));
+            waveletX = fft(wavelet,nConv);
+            waveletX = waveletX ./ max(waveletX);
+    
+            %now run convolution in on step
+            as = ifft(waveletX .* dataX);
+            as = as(half_wave+1:end-half_wave);
+    
+            % and reshape back to time x trials  
+            as = reshape(as, eegRewP(pptnum).pnts, eegRewP(pptnum).trials);
+    
+            %compute power and average over trials
+            tf_all(1,3,pptnum, chani,fi,:) = mean( abs(as),2);
+           
+      
+        end
+
+    %Normalize data by converting to dB
+    activity = tf_all(1,3,pptnum, chani,:,:);
+    baseline = mean(tf_all(1,3,pptnum,chani,:,baseidx(1,1):baseidx(1,2)),6);
+    tf_all_norm(1,3,pptnum,chani,:,:) = bsxfun(minus, activity, baseline);
+
+    end
+    
+end
+%%  Plot da data for each channel for RewP
+
+figure(3), clf
+hold on
+for chanloci = 1:length(channel2use)
+
+
+subplot(2,3,chanloci)
+contourf(eegRewP(pptnum).times, frex, squeeze(mean(tf_all_norm(1,3,:,chanloci,:,:),3)),40, 'linecolor', 'none')
+set(gca,'clim', [-10 10], 'ydir', 'normal', 'xlim', [-200 800])
+colorbar
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['RewP - Exercise- ', channel2use(chanloci)]);
+set(get(colorbar,'title'),'string','dB');
+%colormap(jet(256))
+
+end
+%% plot the average of all channels for RewP
+all_chan = zeros(length(frex),length(eegRewP(pptnum).pnts));
+
+for chani = 1:length(channel2use)
+    all_chan = (all_chan + squeeze(mean(tf_all_norm(1,3,:,chani,:,:),3))) /2;
+end
+
+subplot(2,3,6)
+contourf(eegRewP(pptnum).times, frex, all_chan,40, 'linecolor', 'none')
+set(gca,'clim', [-10 10], 'ydir', 'normal', 'xlim', [-200 800])
+colorbar
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['RewP - Exercise - Average']);
+set(get(colorbar,'title'),'string','dB')
+
+
+
+
+
+%% Plot RewP by subtracting power matrixes of gains and losses
+
+figure(4), clf
+hold on
+for chanloci = 1:length(channel2use)
+
+RewP(chanloci,:,:) = squeeze(mean(tf_all(1,1,:,chanloci,:,:),3)) - squeeze(mean(tf_all(1,2,:,chanloci,:,:),3));
+
+subplot(2,3,chanloci)
+contourf(eegGains(pptnum).times, frex,squeeze(RewP(chanloci,:,:)) ,40, 'linecolor', 'none')
+set(gca,'clim', [0  4], 'ydir', 'normal', 'xlim', [-200 800])
+colorbar
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['RewP - Exercise- ', channel2use(chanloci)]);
+set(get(colorbar,'title'),'string','dB');
+%colormap(jet(256))
+
+end
+
+%% plot average RewP over channels
+
+subplot(2,3,6)
+contourf(eegGains(pptnum).times, frex, squeeze(mean(RewP(:,:,:),1)) ,40, 'linecolor', 'none')
+set(gca,'clim', [0 10], 'ydir', 'normal', 'xlim', [-200 800])
+colorbar
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title(['RewP - Exercise - Average']);
+set(get(colorbar,'title'),'string','dB')
+
+%%
+
+
+%% plot loss
+FN = mean(tf_all(:,:,:),3) - mean(tfgainsNorm(:,:,:),3);
+figure(4), clf
+contourf(eegLoss(pptnum).times,frex,rewP,40,'linecolor', 'none')
+set(gca,'clim', [-1 1],'ydir', 'normal', 'xlim', [-200 800])
+xlabel('Time (ms)');
+ylabel('Frequency (Hz)');
+title('FN - Exercise');
+colorbar
+set(get(colorbar,'title'),'string','dB');
+colormap(jet(256));
