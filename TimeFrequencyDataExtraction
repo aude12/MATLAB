@@ -1,0 +1,182 @@
+%first set up parameters for stat output
+for i = 1:length(eegGains)
+    pptlist{i} = eegGains(i).subject;
+end
+
+tx = eegGains(1).times;
+
+    
+tfpower = zeros(length(pptlist), 30);
+tfpower = table(tfpower);
+tfpower = splitvars(tfpower);
+Condition = [1:length(pptlist)];
+Condition(1:length(eegGains)) = 1;
+tfpower = addvars(tfpower, Condition', 'Before', 'tfpower_1');
+tfpower.Properties.VariableNames{1} = 'Condition';
+
+%enter time/freq windows for data mining
+time_windows = [ 200 400 ]; % two time windows, boundaries separated by semicolon
+freq_windows = [ 1 3 ]; % of course you could have multiple frequency windows
+
+%initiate indx variables
+timeidx  = zeros(size(time_windows));
+freqidx  = zeros(size(freq_windows));
+
+%cycle through entered time/freq windows to find indexes and enter into
+%index variables created above
+for i=1:size(time_windows,1)
+    for j=1:2
+        [~,timeidx(i,j)] = min(abs(tx-time_windows(i,j)));
+    end
+end
+for i=1:size(freq_windows,1)
+    for j=1:2
+        [~,freqidx(i,j)] = min(abs(frex-freq_windows(i,j)));
+    end
+end
+
+
+       %cycle through participants first 
+       for participant = 1:length(pptlist)
+           %pptnum = pptlist() 
+           var = 2;
+           
+           tfpower.Properties.RowNames{participant} = pptlist{participant};
+           
+            %now we loop through conidtion pre/post for each ppt
+            for condi = 1:2
+   
+                %set a string for the contition by number
+                if condi == 1;
+                    condition = 'Pre';
+                else
+                    condition = 'Post';
+                end
+                   
+                            %cycle through each channel 
+                            
+                            for chani = 1:length(channel2use)
+                               
+                                 %loop through tasks
+                   
+                                 for taski = 1:3
+    
+                       
+                                     %set a string for each task type
+                       
+                                     if taski == 1;
+                           
+                                         task = 'Gains';
+                                         
+                                         if participant == 1 && taski ==1;
+                                   
+                                             variable = strcat(condition, '_', task, '_', channel2use{chani});
+                                   
+                                             tfpower.Properties.VariableNames{var} = variable;
+                                    
+                                             tfpower{participant, variable} = mean(mean(tf_all(condi, taski, participant, chani,freqidx(1):freqidx(2), timeidx(1):timeidx(2)),5),6);
+                                   
+                                             var = var + 1;
+                               
+                                         else
+                                             
+                                             variable = strcat(condition, '_', task, '_', channel2use{chani});
+                                   
+                                             tfpower.Properties.VariableNames{var} = variable;
+                                   
+                                             tfpower{participant, [condition, '_', task, '_', channel2use{chani}]} = mean(mean(tf_all(condi, taski, participant, chani,freqidx(1):freqidx(2), timeidx(1):timeidx(2)),5),6);
+                                
+                                             var = var + 1;
+                                         end
+                       
+                                     elseif taski == 2;
+                           
+                                         task = 'Loss';
+                       
+                                         if participant == 1 && taski ==1;
+                                   
+                                             variable = strcat(condition, '_', task, '_', channel2use{chani});
+                                   
+                                             tfpower.Properties.VariableNames{var} = variable;
+                                    
+                                             tfpower{participant, variable} = mean(mean(tf_all(condi, taski, participant, chani,freqidx(1):freqidx(2), timeidx(1):timeidx(2)),5),6);
+                                   
+                                             var = var + 1;
+                               
+                                         else
+                                             
+                                             variable = strcat(condition, '_', task, '_', channel2use{chani});
+                                   
+                                             tfpower.Properties.VariableNames{var} = variable;
+                                   
+                                             tfpower{participant, [condition, '_', task, '_', channel2use{chani}]} = mean(mean(tf_all(condi, taski, participant, chani,freqidx(1):freqidx(2), timeidx(1):timeidx(2)),5),6);
+                                             var = var + 1;
+                                         end
+                                         
+                                         
+                                     else        
+                                         
+                                         task = 'RewP';
+                                         
+                                        
+                                   
+                                             variable = strcat(condition, '_', task, '_', channel2use{chani});
+                                   
+                                             tfpower.Properties.VariableNames{var} = variable;
+                                   
+                                             tfpower{participant, variable} = tfpower{participant, var-2} - tfpower{participant, var -1};
+                                    
+                                             var = var + 1;
+ 
+                                         
+                                
+                                             
+                                     end
+                                     
+                                     
+                                     %end task loop
+                                     
+                                 end
+                                %end channel loop
+                                end
+                           
+                        %end condition loop
+                        end
+                    
+                    
+               
+          %end participant loop      
+         
+       end
+     
+       
+       %create averages for each electrode across task type and add
+       %variables to table.
+       
+          for ppti = 1:length(pptlist)
+              %average over electrodes for Gains
+              preAvgGains(ppti) = mean(tfpower{pptlist{ppti},2:3:14});
+              postAvgGains(ppti) = mean(tfpower{pptlist{ppti},17:3:end});
+              % average over electrodes for Loss
+              preAvgLoss(ppti) = mean(tfpower{pptlist{ppti},3:3:16});
+              postAvgLoss(ppti) = mean(tfpower{pptlist{ppti},18:3:end});
+              % average over electrodes for RewP
+              preAvgRewP(ppti) = mean(tfpower{pptlist{ppti},4:3:16});
+              postAvgRewP(ppti) = mean(tfpower{pptlist{ppti},17:3:end});
+          
+         
+          end
+          
+
+
+        tfpower = addvars(tfpower,preAvgGains', 'NewVariableNames', 'Pre_AVG_Gains', 'Before', 'Post_Gains_Fz');
+        tfpower = addvars(tfpower, preAvgLoss', 'NewVariableNames', 'Pre_AVG_Loss', 'Before', 'Post_Gains_Fz');
+        tfpower = addvars(tfpower, preAvgRewP', 'NewVariableNames', 'Pre_AVG_RewP', 'Before', 'Post_Gains_Fz');
+        tfpower = addvars(tfpower, postAvgGains', 'NewVariableNames', 'Post_Avg_Gains');
+        tfpower = addvars(tfpower, postAvgLoss', 'NewVariableNames', 'Post_Avg_Loss');
+        tfpower = addvars(tfpower, postAvgRewP', 'NewVariableNames', 'Post_Avg_RewP');
+                                   
+                                  
+                                    
+                       
+                 
